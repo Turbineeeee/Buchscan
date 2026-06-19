@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0d1117">
+<title>BuchScan → eurobuch</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel-2:#1c232c; --line:#2a323d;
+    --ink:#e8edf3; --ink-dim:#8b97a6;
+    --accent:#ffb000; --accent-ink:#1a1206;
+    --ok:#2ea043; --bad:#cf3b3b;
+    --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;height:100%;}
+  body{background:var(--bg);color:var(--ink);font-family:var(--font);
+    display:flex;flex-direction:column;
+    padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom);
+    overscroll-behavior:none;}
+  header{padding:14px 18px 10px;display:flex;align-items:baseline;gap:10px;border-bottom:1px solid var(--line);}
+  header h1{font-size:17px;font-weight:800;letter-spacing:-0.2px;margin:0;}
+  header .accent{color:var(--accent);}
+  header .count{margin-left:auto;font-size:12px;color:var(--ink-dim);font-variant-numeric:tabular-nums;}
+  header .count b{color:var(--ink);font-size:14px;}
+
+  .tabs{display:flex;gap:8px;padding:10px 14px 6px;}
+  .tab{flex:1;text-align:center;padding:10px 6px;border-radius:11px;background:var(--panel);
+    border:1px solid var(--line);font-size:13px;font-weight:700;color:var(--ink-dim);}
+  .tab.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);}
+
+  .stage{position:relative;margin:8px 14px;border-radius:16px;overflow:hidden;background:#000;
+    border:1px solid var(--line);aspect-ratio:4/3;}
+  #video{width:100%;height:100%;object-fit:cover;display:block;}
+  .reticle{position:absolute;inset:0;pointer-events:none;display:flex;align-items:center;justify-content:center;}
+  .reticle .frame{width:78%;height:38%;border:2.5px solid var(--accent);border-radius:12px;
+    box-shadow:0 0 0 2000px rgba(0,0,0,.35);}
+  .stage .hint{position:absolute;left:0;right:0;bottom:10px;text-align:center;font-size:12px;
+    color:#cfd8e3;text-shadow:0 1px 4px #000;}
+  .stage.idle{display:flex;align-items:center;justify-content:center;}
+  .stage.idle .startbtn{background:var(--accent);color:var(--accent-ink);border:none;
+    font-size:15px;font-weight:800;padding:14px 22px;border-radius:13px;}
+
+  .ocrpanel{display:none;padding:8px 14px 0;}
+  .ocrpanel.on{display:block;}
+  .uploadbox{border:2px dashed var(--line);border-radius:16px;background:var(--panel);
+    padding:26px 16px;text-align:center;}
+  .uploadbox h3{margin:0 0 6px;font-size:15px;}
+  .uploadbox p{margin:0 0 16px;font-size:12px;color:var(--ink-dim);line-height:1.5;}
+  .uploadbtns{display:flex;gap:10px;justify-content:center;}
+  .uploadbtns label{background:var(--accent);color:var(--accent-ink);font-weight:800;font-size:14px;
+    padding:13px 18px;border-radius:12px;cursor:pointer;}
+  .uploadbtns label.sec{background:var(--panel-2);color:var(--ink);border:1px solid var(--line);}
+  .ocrpreview{margin-top:12px;border-radius:12px;overflow:hidden;border:1px solid var(--line);display:none;}
+  .ocrpreview.on{display:block;}
+  .ocrpreview img{width:100%;display:block;max-height:240px;object-fit:contain;background:#000;}
+
+  .fields{display:none;margin-top:12px;gap:10px;flex-direction:column;}
+  .fields.on{display:flex;}
+  .field{display:flex;flex-direction:column;gap:4px;}
+  .field label{font-size:11px;color:var(--ink-dim);text-transform:uppercase;letter-spacing:.5px;font-weight:700;}
+  .field input{background:var(--panel);border:1px solid var(--line);color:var(--ink);
+    border-radius:11px;padding:12px 13px;font-size:16px;}
+  .field input:focus{border-color:var(--accent);outline:none;}
+  .fields .searchbtn{background:var(--accent);color:var(--accent-ink);border:none;border-radius:12px;
+    padding:15px;font-size:15px;font-weight:800;margin-top:2px;}
+
+  .manual{padding:10px 14px 4px;display:flex;gap:8px;}
+  .manual input{flex:1;background:var(--panel);border:1px solid var(--line);color:var(--ink);
+    border-radius:12px;padding:13px 14px;font-size:16px;font-variant-numeric:tabular-nums;}
+  .manual input::placeholder{color:var(--ink-dim);}
+  .manual button{background:var(--accent);color:var(--accent-ink);border:none;border-radius:12px;
+    padding:0 18px;font-size:15px;font-weight:800;}
+
+  .toast{margin:10px 14px 0;padding:12px 14px;border-radius:12px;background:var(--panel-2);
+    border:1px solid var(--line);font-size:13px;display:none;line-height:1.5;}
+  .toast.on{display:block;}
+  .toast.ok{border-color:var(--ok);}
+  .toast.bad{border-color:var(--bad);}
+  .toast b{color:var(--accent);}
+
+  .listwrap{flex:1;overflow-y:auto;padding:12px 14px 24px;}
+  .listhead{display:flex;align-items:center;gap:8px;margin:4px 2px 10px;}
+  .listhead h2{font-size:13px;font-weight:700;color:var(--ink-dim);margin:0;text-transform:uppercase;letter-spacing:.5px;}
+  .listhead .clear{margin-left:auto;background:none;border:1px solid var(--line);color:var(--ink-dim);
+    font-size:12px;padding:6px 11px;border-radius:9px;}
+  .listhead .exp{background:var(--panel);border:1px solid var(--line);color:var(--ink);
+    font-size:12px;padding:6px 11px;border-radius:9px;font-weight:700;}
+  .row{display:flex;align-items:center;gap:12px;padding:12px 4px;border-bottom:1px solid var(--line);}
+  .row .main{min-width:0;flex:1;}
+  .row .title{font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .row .title.pending{color:var(--ink-dim);font-style:italic;font-weight:500;}
+  .row .sub{font-size:11px;color:var(--ink-dim);margin-top:3px;font-variant-numeric:tabular-nums;
+    display:flex;align-items:center;gap:6px;}
+  .row .tag{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;
+    padding:2px 7px;border-radius:6px;}
+  .tag.isbn{background:#16331f;color:#5fd07e;}
+  .tag.ocr{background:#33260f;color:#e0a64d;}
+  .row .open{background:var(--accent);color:var(--accent-ink);border:none;border-radius:10px;
+    padding:10px 13px;font-size:13px;font-weight:800;text-decoration:none;}
+  .row .keep{background:var(--panel);border:1px solid var(--line);color:var(--ink-dim);
+    border-radius:10px;padding:10px 11px;font-size:13px;font-weight:700;min-width:40px;}
+  .row.kept{background:rgba(46,160,67,.06);}
+  .row.kept .keep{background:var(--ok);color:#03210c;border-color:var(--ok);}
+  .empty{color:var(--ink-dim);font-size:13px;text-align:center;padding:30px 10px;line-height:1.6;}
+  .footer{text-align:center;font-size:11px;color:var(--ink-dim);padding:10px 14px 4px;line-height:1.5;}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Buch<span class="accent">Scan</span></h1>
+  <div class="count">Heute&nbsp;<b id="cTotal">0</b>&nbsp;·&nbsp;<b id="cKept">0</b> behalten</div>
+</header>
+
+<div class="tabs">
+  <div class="tab on" id="tabIsbn">📷 ISBN-Scan</div>
+  <div class="tab" id="tabOcr">📄 Foto / OCR</div>
+</div>
+
+<div class="stage idle" id="stage">
+  <button class="startbtn" id="startBtn">Kamera starten</button>
+</div>
+
+<div class="ocrpanel" id="ocrpanel">
+  <div class="uploadbox">
+    <h3>Vorsatz- oder Titelblatt erfassen</h3>
+    <p>Foto vom Titelblatt aufnehmen oder hochladen. Titel, Autor und Jahr werden ausgelesen – du prüfst sie, dann gezielte Suche bei eurobuch.</p>
+    <div class="uploadbtns">
+      <label>📷 Foto aufnehmen<input type="file" id="camInput" accept="image/*" capture="environment" hidden></label>
+      <label class="sec">🖼 Hochladen<input type="file" id="fileInput" accept="image/*" hidden></label>
+    </div>
+  </div>
+  <div class="ocrpreview" id="ocrpreview"><img id="previewImg" alt=""></div>
+  <div class="fields" id="fields">
+    <div class="field"><label>Titel</label><input id="fTitle" type="text" placeholder="Buchtitel"></div>
+    <div class="field"><label>Autor</label><input id="fAuthor" type="text" placeholder="Vorname Nachname"></div>
+    <div class="field"><label>Erscheinungsjahr</label><input id="fYear" type="text" inputmode="numeric" placeholder="z. B. 1998"></div>
+    <button class="searchbtn" id="ocrSearchBtn">→ Bei eurobuch suchen</button>
+  </div>
+</div>
+
+<div class="manual" id="manualBar">
+  <input id="manualInput" inputmode="numeric" placeholder="ISBN tippen…" autocomplete="off">
+  <button id="goBtn">→</button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<div class="listwrap">
+  <div class="listhead">
+    <h2>Verlauf</h2>
+    <button class="exp" id="expBtn">CSV für JTL</button>
+    <button class="clear" id="clearBtn">Leeren</button>
+  </div>
+  <div id="list"></div>
+</div>
+
+<div class="footer">Du landest direkt auf eurobuch.de – du liest &amp; entscheidest selbst. Keine Server, keine Datenweitergabe.</div>
+
+<script src="https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js"></script>
+<script src="https://unpkg.com/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+<script>
+const EUROBUCH_ISBN = isbn => `https://www.eurobuch.de/buch/isbn/${isbn}.html`;
+function eurobuchSearch({title,author,year}){
+  const params=new URLSearchParams();
+  params.set('mediatype','13');
+  if(author) params.set('author',author);
+  let t=title||'';
+  if(year) t=(t+' '+year).trim();
+  if(t) params.set('title',t);
+  return 'https://www.eurobuch.de/search.php?'+params.toString();
+}
+
+let mode='isbn';
+let history=[];
+let codeReader=null, activeStream=null, lastDecoded=null, lastTime=0;
+const $=id=>document.getElementById(id);
+
+function cleanIsbn(raw){
+  const s=(raw||'').replace(/[^0-9Xx]/g,'').toUpperCase();
+  if(validIsbn13(s))return s; if(validIsbn10(s))return s; return null;
+}
+function validIsbn13(s){if(!/^\d{13}$/.test(s))return false;let sum=0;for(let i=0;i<13;i++)sum+=(+s[i])*(i%2?3:1);return sum%10===0;}
+function validIsbn10(s){if(!/^\d{9}[\dX]$/.test(s))return false;let sum=0;for(let i=0;i<10;i++)sum+=(s[i]==='X'?10:+s[i])*(10-i);return sum%11===0;}
+
+function setMode(m){
+  mode=m;
+  $('tabIsbn').classList.toggle('on',m==='isbn');
+  $('tabOcr').classList.toggle('on',m==='ocr');
+  $('stage').style.display=m==='isbn'?'':'none';
+  $('ocrpanel').classList.toggle('on',m==='ocr');
+  $('manualBar').style.display=m==='isbn'?'flex':'none';
+  stopCamera();
+  if(m==='isbn') resetStage();
+}
+$('tabIsbn').onclick=()=>setMode('isbn');
+$('tabOcr').onclick=()=>setMode('ocr');
+
+function resetStage(){
+  $('stage').className='stage idle';
+  $('stage').innerHTML='';
+  const b=document.createElement('button');
+  b.className='startbtn';b.id='startBtn';b.textContent='Kamera starten';b.onclick=startCamera;
+  $('stage').appendChild(b);
+}
+
+async function startCamera(){
+  $('stage').className='stage';
+  $('stage').innerHTML=`<video id="video" playsinline muted></video>
+    <div class="reticle"><div class="frame"></div></div>
+    <div class="hint">Barcode in den Rahmen halten</div>`;
+  try{
+    activeStream=await navigator.mediaDevices.getUserMedia({
+      video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:960}},audio:false});
+  }catch(e){ showToast('Kamera nicht verfügbar. ISBN unten manuell eingeben.','bad'); resetStage(); return; }
+  const v=$('video'); v.srcObject=activeStream; await v.play();
+  startBarcodeLoop();
+}
+function stopCamera(){
+  if(codeReader){try{codeReader.reset();}catch(e){}codeReader=null;}
+  if(activeStream){activeStream.getTracks().forEach(t=>t.stop());activeStream=null;}
+}
+function startBarcodeLoop(){
+  const hints=new Map();
+  hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS,[
+    ZXing.BarcodeFormat.EAN_13,ZXing.BarcodeFormat.EAN_8,ZXing.BarcodeFormat.UPC_A,ZXing.BarcodeFormat.CODE_128]);
+  hints.set(ZXing.DecodeHintType.TRY_HARDER,true);
+  codeReader=new ZXing.BrowserMultiFormatReader(hints);
+  codeReader.decodeFromVideoElement($('video'),(result)=>{
+    if(result){
+      const isbn=cleanIsbn(result.getText());
+      if(isbn){
+        const now=Date.now();
+        if(isbn===lastDecoded && now-lastTime<2500) return;
+        lastDecoded=isbn; lastTime=now;
+        onIsbnHit(isbn);
+      }
+    }
+  });
+}
+
+function onIsbnHit(isbn){
+  window.open(EUROBUCH_ISBN(isbn),'_blank');
+  beep();
+  const entry={id:Date.now()+Math.random(),type:'isbn',isbn,title:'',author:'',year:'',kept:false,ts:Date.now(),pending:true};
+  history.unshift(entry); renderList(); renderCounts();
+  showToast(`ISBN <b>${isbn}</b> → eurobuch geöffnet`,'ok');
+  lookupTitle(isbn,entry.id);
+}
+async function lookupTitle(isbn,entryId){
+  try{
+    const r=await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`);
+    const d=await r.json();
+    const v=d.items&&d.items[0]&&d.items[0].volumeInfo;
+    const e=history.find(x=>x.id===entryId); if(!e) return;
+    if(v){
+      e.title=v.title||''; if(v.subtitle) e.title+=': '+v.subtitle;
+      e.author=(v.authors&&v.authors.join(', '))||'';
+      e.year=(v.publishedDate||'').slice(0,4);
+    }
+    e.pending=false; renderList();
+  }catch(err){
+    const e=history.find(x=>x.id===entryId); if(e){e.pending=false;renderList();}
+  }
+}
+
+$('goBtn').onclick=()=>{
+  const v=$('manualInput').value.trim(); if(!v) return;
+  const isbn=cleanIsbn(v);
+  if(isbn){ onIsbnHit(isbn); $('manualInput').value=''; }
+  else showToast('Keine gültige ISBN. Für Bücher ohne ISBN den Reiter „Foto / OCR" nutzen.','bad');
+};
+$('manualInput').addEventListener('keydown',e=>{if(e.key==='Enter')$('goBtn').click();});
+
+let ocrWorker=null;
+async function getWorker(){ if(ocrWorker)return ocrWorker; ocrWorker=await Tesseract.createWorker('deu+eng'); return ocrWorker; }
+$('camInput').onchange=e=>handleImage(e.target.files[0]);
+$('fileInput').onchange=e=>handleImage(e.target.files[0]);
+
+async function handleImage(file){
+  if(!file) return;
+  const url=URL.createObjectURL(file);
+  $('previewImg').src=url; $('ocrpreview').classList.add('on');
+  $('fields').classList.remove('on');
+  showToast('Texterkennung läuft…');
+  try{
+    const w=await getWorker();
+    const {data}=await w.recognize(url);
+    const parsed=parseTitlePage(data);
+    $('fTitle').value=parsed.title;
+    $('fAuthor').value=parsed.author;
+    $('fYear').value=parsed.year;
+    $('fields').classList.add('on');
+    showToast('Erkannt – bitte prüfen und ggf. korrigieren, dann suchen.','ok');
+  }catch(e){
+    $('fTitle').value=''; $('fAuthor').value=''; $('fYear').value='';
+    $('fields').classList.add('on');
+    showToast('OCR fehlgeschlagen – Felder bitte manuell ausfüllen.','bad');
+  }
+}
+
+function parseTitlePage(data){
+  const raw=(data.text||'');
+  const lines=raw.split('\n').map(s=>s.trim()).filter(s=>s.length>1);
+  let year='';
+  const years=(raw.match(/\b(1[5-9]\d{2}|20[0-2]\d)\b/g)||[]).map(Number)
+    .filter(y=>y>=1500 && y<=new Date().getFullYear()+1);
+  if(years.length) year=String(Math.max(...years));
+  const lettersOnly=s=>s.replace(/[^A-Za-zÀ-ÿ' \-]/g,'').replace(/\s+/g,' ').trim();
+  const cand=lines.map(l=>({raw:l,clean:lettersOnly(l)}))
+                  .filter(o=>o.clean.length>=3 && /[A-Za-zÀ-ÿ]{3,}/.test(o.clean));
+  let author='';
+  const namePat=/^([A-ZÀ-Þ][a-zà-ÿ.'\-]+)(\s+[A-ZÀ-Þ][a-zà-ÿ.'\-]+){1,2}$/;
+  for(const o of cand){ if(namePat.test(o.clean)){ author=o.clean; break; } }
+  let title='';
+  const titleCands=cand.filter(o=>o.clean!==author).sort((a,b)=>b.clean.length-a.clean.length);
+  if(titleCands.length) title=titleCands[0].clean.slice(0,90);
+  return {title,author,year};
+}
+
+$('ocrSearchBtn').onclick=()=>{
+  const title=$('fTitle').value.replace(/[^A-Za-zÀ-ÿ0-9' \-:]/g,'').trim();
+  const author=$('fAuthor').value.replace(/[^A-Za-zÀ-ÿ' \-.]/g,'').trim();
+  const year=($('fYear').value.match(/\d{4}/)||[''])[0];
+  if(!title && !author){ showToast('Bitte mindestens Titel oder Autor angeben.','bad'); return; }
+  const url=eurobuchSearch({title,author,year});
+  window.open(url,'_blank'); beep();
+  history.unshift({id:Date.now()+Math.random(),type:'ocr',isbn:'',title,author,year,kept:false,ts:Date.now(),pending:false});
+  renderList(); renderCounts();
+  showToast('Suche bei eurobuch geöffnet.','ok');
+  $('ocrpreview').classList.remove('on'); $('fields').classList.remove('on');
+  $('fTitle').value=''; $('fAuthor').value=''; $('fYear').value='';
+  $('camInput').value=''; $('fileInput').value='';
+};
+
+function renderCounts(){
+  $('cTotal').textContent=history.length;
+  $('cKept').textContent=history.filter(h=>h.kept).length;
+}
+function rowUrl(h){ return h.type==='isbn'?EUROBUCH_ISBN(h.isbn):eurobuchSearch(h); }
+function renderList(){
+  const el=$('list');
+  if(!history.length){ el.innerHTML='<div class="empty">Noch nichts erfasst.<br>ISBN scannen oder ein Titelblatt-Foto hochladen.</div>'; return; }
+  el.innerHTML=history.map((h)=>{
+    const t=new Date(h.ts).toLocaleTimeString('de-AT',{hour:'2-digit',minute:'2-digit'});
+    const tag = h.type==='isbn' ? `<span class="tag isbn">ISBN</span>` : `<span class="tag ocr">OCR</span>`;
+    let titleHtml, subHtml;
+    if(h.type==='isbn'){
+      if(h.pending){ titleHtml=`<div class="title pending">Titel wird geladen…</div>`; }
+      else { titleHtml=`<div class="title">${h.title?esc(h.title):'(kein Titel gefunden)'}</div>`; }
+      const parts=[h.isbn]; if(h.author)parts.push(esc(h.author)); if(h.year)parts.push(h.year);
+      subHtml=`<div class="sub">${tag}${parts.join(' · ')}</div>`;
+    }else{
+      titleHtml=`<div class="title">${h.title?esc(h.title):'(ohne Titel)'}</div>`;
+      const parts=[]; if(h.author)parts.push(esc(h.author)); if(h.year)parts.push(h.year);
+      subHtml=`<div class="sub">${tag}${parts.length?parts.join(' · '):'Titelsuche'}</div>`;
+    }
+    return `<div class="row ${h.kept?'kept':''}">
+      <div class="main">${titleHtml}${subHtml}<div class="sub" style="margin-top:2px;opacity:.6">${t}</div></div>
+      <a class="open" href="${rowUrl(h)}" target="_blank">eurobuch</a>
+      <button class="keep" onclick="toggleKeep('${h.id}')">${h.kept?'✓':'+'}</button>
+    </div>`;
+  }).join('');
+}
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function toggleKeep(id){const h=history.find(x=>String(x.id)===String(id));if(h){h.kept=!h.kept;renderList();renderCounts();}}
+
+$('expBtn').onclick=()=>{
+  if(!history.length){showToast('Nichts zu exportieren.','bad');return;}
+  const rows=[['Titel','Autor','Jahr','ISBN','Typ','Behalten','Zeit']];
+  history.forEach(h=>rows.push([h.title||'',h.author||'',h.year||'',h.isbn||'',h.type,h.kept?'ja':'nein',new Date(h.ts).toLocaleString('de-AT')]));
+  const csv=rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(';')).join('\r\n');
+  const blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download=`buchscan_${new Date().toISOString().slice(0,10)}.csv`;a.click();
+  showToast('CSV erstellt – Import in JTL-Wawi möglich.','ok');
+};
+$('clearBtn').onclick=()=>{if(confirm('Verlauf wirklich leeren?')){history=[];renderList();renderCounts();}};
+
+let toastTimer=null;
+function showToast(html,kind){const t=$('toast');t.innerHTML=html;t.className='toast on'+(kind?' '+kind:'');
+  clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.className='toast',4000);}
+function beep(){try{const ac=new(window.AudioContext||window.webkitAudioContext)();
+  const o=ac.createOscillator(),g=ac.createGain();o.frequency.value=880;o.connect(g);g.connect(ac.destination);
+  g.gain.setValueAtTime(.15,ac.currentTime);g.gain.exponentialRampToValueAtTime(.001,ac.currentTime+.15);
+  o.start();o.stop(ac.currentTime+.15);if(navigator.vibrate)navigator.vibrate(60);}catch(e){}}
+
+resetStage();renderList();renderCounts();
+</script>
+</body>
+</html>
