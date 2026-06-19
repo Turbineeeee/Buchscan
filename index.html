@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0d1117">
+<title>BuchScan → eurobuch</title>
+<style>
+  :root{
+    --bg:#0d1117;
+    --panel:#161b22;
+    --panel-2:#1c232c;
+    --line:#2a323d;
+    --ink:#e8edf3;
+    --ink-dim:#8b97a6;
+    --accent:#ffb000;      /* signal amber – the one bold thing */
+    --accent-ink:#1a1206;
+    --ok:#2ea043;
+    --warn:#d9822b;
+    --bad:#cf3b3b;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0; height:100%;}
+  body{
+    background:var(--bg); color:var(--ink); font-family:var(--font);
+    display:flex; flex-direction:column;
+    padding-top:env(safe-area-inset-top);
+    padding-bottom:env(safe-area-inset-bottom);
+    overscroll-behavior:none;
+  }
+  header{
+    padding:14px 18px 10px; display:flex; align-items:baseline; gap:10px;
+    border-bottom:1px solid var(--line);
+  }
+  header h1{
+    font-size:17px; font-weight:800; letter-spacing:-0.2px; margin:0;
+  }
+  header .accent{color:var(--accent);}
+  header .count{
+    margin-left:auto; font-size:12px; color:var(--ink-dim);
+    font-variant-numeric:tabular-nums;
+  }
+  header .count b{color:var(--ink); font-size:14px;}
+
+  /* mode tabs */
+  .tabs{display:flex; gap:8px; padding:10px 14px 6px;}
+  .tab{
+    flex:1; text-align:center; padding:10px 6px; border-radius:11px;
+    background:var(--panel); border:1px solid var(--line);
+    font-size:13px; font-weight:700; color:var(--ink-dim);
+  }
+  .tab.on{
+    background:var(--accent); color:var(--accent-ink); border-color:var(--accent);
+  }
+
+  /* scanner stage */
+  .stage{
+    position:relative; margin:8px 14px; border-radius:16px; overflow:hidden;
+    background:#000; border:1px solid var(--line);
+    aspect-ratio:4/3;
+  }
+  #video,#ocrVideo{width:100%; height:100%; object-fit:cover; display:block;}
+  .reticle{
+    position:absolute; inset:0; pointer-events:none;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .reticle .frame{
+    width:78%; height:38%; border:2.5px solid var(--accent);
+    border-radius:12px; box-shadow:0 0 0 2000px rgba(0,0,0,.35);
+  }
+  .stage .hint{
+    position:absolute; left:0; right:0; bottom:10px; text-align:center;
+    font-size:12px; color:#cfd8e3; text-shadow:0 1px 4px #000;
+  }
+  .stage.idle{display:flex; align-items:center; justify-content:center; aspect-ratio:4/3;}
+  .stage.idle .startbtn{
+    background:var(--accent); color:var(--accent-ink); border:none;
+    font-size:15px; font-weight:800; padding:14px 22px; border-radius:13px;
+  }
+
+  /* OCR capture button */
+  .capbar{display:none; padding:6px 14px 0; gap:10px;}
+  .capbar.on{display:flex;}
+  .capbar button{
+    flex:1; padding:14px; border-radius:13px; border:none;
+    font-size:15px; font-weight:800;
+  }
+  .cap-shoot{background:var(--accent); color:var(--accent-ink);}
+  .cap-redo{background:var(--panel); color:var(--ink); border:1px solid var(--line)!important;}
+
+  /* manual input */
+  .manual{padding:10px 14px 4px; display:flex; gap:8px;}
+  .manual input{
+    flex:1; background:var(--panel); border:1px solid var(--line);
+    color:var(--ink); border-radius:12px; padding:13px 14px;
+    font-size:16px; font-variant-numeric:tabular-nums;
+  }
+  .manual input::placeholder{color:var(--ink-dim);}
+  .manual button{
+    background:var(--accent); color:var(--accent-ink); border:none;
+    border-radius:12px; padding:0 18px; font-size:15px; font-weight:800;
+  }
+
+  .ocrnote{
+    padding:0 16px; font-size:12px; color:var(--ink-dim); line-height:1.5;
+  }
+
+  /* result toast */
+  .toast{
+    margin:10px 14px 0; padding:12px 14px; border-radius:12px;
+    background:var(--panel-2); border:1px solid var(--line);
+    font-size:13px; display:none;
+  }
+  .toast.on{display:block;}
+  .toast.ok{border-color:var(--ok);}
+  .toast.bad{border-color:var(--bad);}
+  .toast b{color:var(--accent); font-variant-numeric:tabular-nums;}
+
+  /* history list */
+  .listwrap{flex:1; overflow-y:auto; padding:12px 14px 24px;}
+  .listhead{
+    display:flex; align-items:center; gap:8px; margin:4px 2px 10px;
+  }
+  .listhead h2{font-size:13px; font-weight:700; color:var(--ink-dim); margin:0; text-transform:uppercase; letter-spacing:.5px;}
+  .listhead .clear{
+    margin-left:auto; background:none; border:1px solid var(--line);
+    color:var(--ink-dim); font-size:12px; padding:6px 11px; border-radius:9px;
+  }
+  .listhead .exp{
+    background:var(--panel); border:1px solid var(--line);
+    color:var(--ink); font-size:12px; padding:6px 11px; border-radius:9px; font-weight:700;
+  }
+  .row{
+    display:flex; align-items:center; gap:12px; padding:12px 4px;
+    border-bottom:1px solid var(--line);
+  }
+  .row .isbn{
+    font-size:15px; font-weight:700; font-variant-numeric:tabular-nums;
+    letter-spacing:.3px;
+  }
+  .row .meta{font-size:11px; color:var(--ink-dim); margin-top:2px;}
+  .row .tag{
+    font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.4px;
+    padding:2px 7px; border-radius:6px; margin-left:6px;
+  }
+  .tag.isbn{background:#16331f; color:#5fd07e;}
+  .tag.ocr{background:#33260f; color:#e0a64d;}
+  .row .open{
+    margin-left:auto; background:var(--accent); color:var(--accent-ink);
+    border:none; border-radius:10px; padding:10px 14px; font-size:13px; font-weight:800;
+    text-decoration:none;
+  }
+  .row .keep{
+    background:var(--panel); border:1px solid var(--line); color:var(--ink-dim);
+    border-radius:10px; padding:10px 12px; font-size:13px; font-weight:700;
+  }
+  .row.kept{background:rgba(46,160,67,.06);}
+  .row.kept .keep{background:var(--ok); color:#03210c; border-color:var(--ok);}
+  .empty{color:var(--ink-dim); font-size:13px; text-align:center; padding:30px 10px; line-height:1.6;}
+
+  .footer{
+    text-align:center; font-size:11px; color:var(--ink-dim);
+    padding:10px 14px 4px; line-height:1.5;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Buch<span class="accent">Scan</span></h1>
+  <div class="count">Heute &nbsp;<b id="cTotal">0</b> gescannt &nbsp;·&nbsp; <b id="cKept">0</b> behalten</div>
+</header>
+
+<div class="tabs">
+  <div class="tab on" data-mode="isbn" id="tabIsbn">📷 ISBN-Scan</div>
+  <div class="tab" data-mode="ocr" id="tabOcr">🔤 OCR (ohne ISBN)</div>
+</div>
+
+<!-- ISBN scanner stage -->
+<div class="stage idle" id="stage">
+  <button class="startbtn" id="startBtn">Kamera starten</button>
+  <video id="video" playsinline muted style="display:none"></video>
+  <div class="reticle" id="reticle" style="display:none"><div class="frame"></div></div>
+  <div class="hint" id="hint" style="display:none">Barcode in den Rahmen halten</div>
+</div>
+
+<!-- OCR capture controls -->
+<div class="capbar" id="capbar">
+  <button class="cap-shoot" id="shootBtn">📸 Titel erfassen</button>
+  <button class="cap-redo" id="redoBtn" style="display:none">Neu</button>
+</div>
+<div class="ocrnote" id="ocrnote" style="display:none">
+  Buchtitel + Autor formatfüllend ins Bild bringen, dann „Titel erfassen". Der erkannte Text wird als Suchbegriff an eurobuch übergeben.
+</div>
+
+<!-- manual / OCR-result input -->
+<div class="manual">
+  <input id="manualInput" inputmode="numeric" placeholder="ISBN tippen oder OCR-Text…" autocomplete="off">
+  <button id="goBtn">→</button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<div class="listwrap">
+  <div class="listhead">
+    <h2>Verlauf</h2>
+    <button class="exp" id="expBtn">CSV für JTL</button>
+    <button class="clear" id="clearBtn">Leeren</button>
+  </div>
+  <div id="list"></div>
+</div>
+
+<div class="footer">
+  Du landest direkt auf eurobuch.de – du liest &amp; entscheidest selbst. Keine Server, keine Datenweitergabe.
+</div>
+
+<!-- ZXing for real barcode decoding, Tesseract for OCR. Loaded from CDN. -->
+<script src="https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js"></script>
+<script src="https://unpkg.com/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+<script>
+const EUROBUCH_ISBN = isbn => `https://www.eurobuch.de/buch/isbn/${isbn}.html`;
+const EUROBUCH_TEXT = q => `https://www.eurobuch.de/search.php?author=&title=${encodeURIComponent(q)}&searchType=1`;
+
+let mode = 'isbn';
+let history = [];          // {key, type:'isbn'|'ocr', kept, ts}
+let codeReader = null;
+let activeStream = null;
+let lastDecoded = null;
+let lastDecodeTime = 0;
+
+const $ = id => document.getElementById(id);
+
+/* ---------- ISBN validation ---------- */
+function cleanIsbn(raw){
+  const s = (raw||'').replace(/[^0-9Xx]/g,'').toUpperCase();
+  if(validIsbn13(s)) return s;
+  if(validIsbn10(s)) return s;
+  return null;
+}
+function validIsbn13(s){
+  if(!/^\d{13}$/.test(s)) return false;
+  let sum=0; for(let i=0;i<13;i++){ sum += (+s[i]) * (i%2?3:1); }
+  return sum%10===0;
+}
+function validIsbn10(s){
+  if(!/^\d{9}[\dX]$/.test(s)) return false;
+  let sum=0; for(let i=0;i<10;i++){ sum += (s[i]==='X'?10:+s[i])*(10-i); }
+  return sum%11===0;
+}
+
+/* ---------- mode switching ---------- */
+function setMode(m){
+  mode = m;
+  $('tabIsbn').classList.toggle('on', m==='isbn');
+  $('tabOcr').classList.toggle('on', m==='ocr');
+  $('ocrnote').style.display = m==='ocr' ? 'block' : 'none';
+  $('manualInput').placeholder = m==='ocr' ? 'OCR-Text oder Titel tippen…' : 'ISBN tippen…';
+  $('manualInput').inputmode = m==='ocr' ? 'text' : 'numeric';
+  stopCamera();
+  resetStage();
+}
+$('tabIsbn').onclick = ()=>setMode('isbn');
+$('tabOcr').onclick  = ()=>setMode('ocr');
+
+function resetStage(){
+  $('stage').className = 'stage idle';
+  $('stage').innerHTML = '';
+  const b = document.createElement('button');
+  b.className='startbtn'; b.id='startBtn';
+  b.textContent = mode==='ocr' ? 'Kamera für OCR starten' : 'Kamera starten';
+  b.onclick = startCamera;
+  $('stage').appendChild(b);
+  $('capbar').className='capbar';
+}
+
+/* ---------- camera ---------- */
+async function startCamera(){
+  $('stage').className='stage';
+  $('stage').innerHTML = `
+    <video id="video" playsinline muted></video>
+    <div class="reticle"><div class="frame"></div></div>
+    <div class="hint">${mode==='ocr'?'Titel scharf ins Bild – dann erfassen':'Barcode in den Rahmen halten'}</div>`;
+  try{
+    activeStream = await navigator.mediaDevices.getUserMedia({
+      video:{ facingMode:{ideal:'environment'}, width:{ideal:1280}, height:{ideal:960} },
+      audio:false
+    });
+  }catch(e){
+    showToast('Kamera nicht verfügbar. Tippe die ISBN unten manuell ein.', 'bad');
+    resetStage(); return;
+  }
+  const v = $('video');
+  v.srcObject = activeStream;
+  await v.play();
+
+  if(mode==='isbn'){
+    startBarcodeLoop();
+  }else{
+    $('capbar').className='capbar on';
+    $('shootBtn').style.display='block';
+    $('redoBtn').style.display='none';
+  }
+}
+function stopCamera(){
+  if(codeReader){ try{codeReader.reset();}catch(e){} codeReader=null; }
+  if(activeStream){ activeStream.getTracks().forEach(t=>t.stop()); activeStream=null; }
+}
+
+/* ---------- barcode loop (ZXing) ---------- */
+function startBarcodeLoop(){
+  const hints = new Map();
+  const formats = [
+    ZXing.BarcodeFormat.EAN_13,
+    ZXing.BarcodeFormat.EAN_8,
+    ZXing.BarcodeFormat.UPC_A,
+    ZXing.BarcodeFormat.CODE_128
+  ];
+  hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, formats);
+  hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+  codeReader = new ZXing.BrowserMultiFormatReader(hints);
+  codeReader.decodeFromVideoElement($('video'), (result, err)=>{
+    if(result){
+      const raw = result.getText();
+      const isbn = cleanIsbn(raw);
+      if(isbn){
+        const now = Date.now();
+        if(isbn===lastDecoded && now-lastDecodeTime < 2500) return; // debounce same code
+        lastDecoded = isbn; lastDecodeTime = now;
+        onHit(isbn, 'isbn');
+      }
+    }
+  });
+}
+
+/* ---------- OCR (Tesseract) ---------- */
+let ocrWorker = null;
+async function getWorker(){
+  if(ocrWorker) return ocrWorker;
+  ocrWorker = await Tesseract.createWorker('deu+eng');
+  return ocrWorker;
+}
+$('shootBtn') && ($('shootBtn').onclick = doOcr); // bound after render too
+document.addEventListener('click', e=>{
+  if(e.target && e.target.id==='shootBtn') doOcr();
+  if(e.target && e.target.id==='redoBtn'){ $('shootBtn').style.display='block'; $('redoBtn').style.display='none'; $('hint') && ($('hint').textContent='Titel scharf ins Bild – dann erfassen'); }
+});
+
+async function doOcr(){
+  const v = $('video'); if(!v) return;
+  const c = document.createElement('canvas');
+  c.width = v.videoWidth; c.height = v.videoHeight;
+  c.getContext('2d').drawImage(v,0,0,c.width,c.height);
+  $('shootBtn').style.display='none';
+  $('redoBtn').style.display='block';
+  showToast('Texterkennung läuft…');
+  try{
+    const w = await getWorker();
+    const { data } = await w.recognize(c);
+    let txt = (data.text||'').replace(/\s+/g,' ').trim();
+    // keep the longest plausible line as title guess
+    txt = txt.split('\n').map(s=>s.trim()).filter(Boolean).sort((a,b)=>b.length-a.length)[0] || txt;
+    txt = txt.slice(0,80);
+    if(!txt){ showToast('Kein Text erkannt – näher ran, dann „Neu".','bad'); return; }
+    $('manualInput').value = txt;
+    showToast('Erkannt: „'+txt+'" – prüfen, dann → drücken.', 'ok');
+  }catch(e){
+    showToast('OCR-Fehler. Tippe den Titel manuell ein.','bad');
+  }
+}
+
+/* ---------- hit handling ---------- */
+function onHit(key, type){
+  // open eurobuch in a new tab
+  const url = type==='isbn' ? EUROBUCH_ISBN(key) : EUROBUCH_TEXT(key);
+  window.open(url, '_blank');
+  beep();
+  addToHistory(key, type);
+  showToast(`${type==='isbn'?'ISBN':'Titel'} <b>${key}</b> → eurobuch geöffnet`, 'ok');
+}
+
+function addToHistory(key, type){
+  history.unshift({ key, type, kept:false, ts:Date.now() });
+  renderList(); renderCounts();
+}
+
+/* manual / go */
+$('goBtn').onclick = ()=>{
+  const v = $('manualInput').value.trim();
+  if(!v) return;
+  if(mode==='isbn' || /^[0-9Xx\- ]+$/.test(v)){
+    const isbn = cleanIsbn(v);
+    if(isbn){ onHit(isbn,'isbn'); }
+    else { onHit(v,'ocr'); } // not a valid ISBN → treat as text search
+  } else {
+    onHit(v,'ocr');
+  }
+  $('manualInput').value='';
+};
+$('manualInput').addEventListener('keydown', e=>{ if(e.key==='Enter') $('goBtn').click(); });
+
+/* ---------- render ---------- */
+function renderCounts(){
+  $('cTotal').textContent = history.length;
+  $('cKept').textContent = history.filter(h=>h.kept).length;
+}
+function renderList(){
+  const el = $('list');
+  if(!history.length){
+    el.innerHTML = '<div class="empty">Noch nichts gescannt.<br>Starte die Kamera und halte einen Barcode in den Rahmen.</div>';
+    return;
+  }
+  el.innerHTML = history.map((h,i)=>{
+    const url = h.type==='isbn' ? EUROBUCH_ISBN(h.key) : EUROBUCH_TEXT(h.key);
+    const tagClass = h.type==='isbn' ? 'isbn' : 'ocr';
+    const tagLabel = h.type==='isbn' ? 'ISBN' : 'OCR';
+    const t = new Date(h.ts).toLocaleTimeString('de-AT',{hour:'2-digit',minute:'2-digit'});
+    return `<div class="row ${h.kept?'kept':''}">
+      <div>
+        <div class="isbn">${h.key}<span class="tag ${tagClass}">${tagLabel}</span></div>
+        <div class="meta">${t}</div>
+      </div>
+      <a class="open" href="${url}" target="_blank">eurobuch</a>
+      <button class="keep" onclick="toggleKeep(${i})">${h.kept?'✓ behalten':'behalten'}</button>
+    </div>`;
+  }).join('');
+}
+function toggleKeep(i){ history[i].kept = !history[i].kept; renderList(); renderCounts(); }
+
+/* ---------- CSV export for JTL ---------- */
+$('expBtn').onclick = ()=>{
+  if(!history.length){ showToast('Nichts zu exportieren.','bad'); return; }
+  const rows = [['ISBN_oder_Titel','Typ','Behalten','Zeit']];
+  history.forEach(h=>rows.push([
+    h.key, h.type, h.kept?'ja':'nein', new Date(h.ts).toLocaleString('de-AT')
+  ]));
+  const csv = rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(';')).join('\r\n');
+  const blob = new Blob(['\ufeff'+csv], {type:'text/csv;charset=utf-8'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `buchscan_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  showToast('CSV erstellt – Import in JTL-Wawi möglich.','ok');
+};
+$('clearBtn').onclick = ()=>{
+  if(confirm('Verlauf wirklich leeren?')){ history=[]; renderList(); renderCounts(); }
+};
+
+/* ---------- feedback ---------- */
+let toastTimer=null;
+function showToast(html, kind){
+  const t=$('toast'); t.innerHTML=html; t.className='toast on'+(kind?(' '+kind):'');
+  clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.className='toast',3500);
+}
+function beep(){
+  try{
+    const ac=new (window.AudioContext||window.webkitAudioContext)();
+    const o=ac.createOscillator(), g=ac.createGain();
+    o.frequency.value=880; o.connect(g); g.connect(ac.destination);
+    g.gain.setValueAtTime(.15,ac.currentTime);
+    g.gain.exponentialRampToValueAtTime(.001,ac.currentTime+.15);
+    o.start(); o.stop(ac.currentTime+.15);
+    if(navigator.vibrate) navigator.vibrate(60);
+  }catch(e){}
+}
+
+/* init */
+$('startBtn').onclick = startCamera;
+resetStage(); renderList(); renderCounts();
+</script>
+</body>
+</html>
